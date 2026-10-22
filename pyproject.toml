@@ -9,7 +9,11 @@ authors = [
 requires-python = ">=3.12"
 dependencies = [
     "beautifulsoup4>=4.15.0",
+    "ollama>=0.6.3",
+    "qdrant-client>=1.20.0",
     "requests>=2.34.2",
+    "sentence-transformers>=6.2.0",
+    "torch>=2.11.0",
 ]
 
 [project.scripts]
@@ -23,3 +27,11 @@ build-backend = "uv_build"
 dev = [
     "pytest>=9.1.1",
 ]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true

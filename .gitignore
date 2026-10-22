@@ -1,3 +1,5 @@
 .venv/
-data/raw/lyrics/
+data/raw/
+data/processed/
 *.py[cod]
+data/qdrant

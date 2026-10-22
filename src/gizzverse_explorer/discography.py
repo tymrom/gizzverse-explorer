@@ -4,16 +4,16 @@ from pathlib import Path
 import requests
 
 ARTIST = "King Gizzard & the Lizard Wizard"
-BASE_URL = "https://musicbrainz.org/ws/2/"
+BASE_URL = "https://musicbrainz.org/ws/2"
 
 HEADERS = {
-    "User-Agent": "GizzverseExplorer/0.1 (your-email@example.com)"
+    "User-Agent": "GizzverseExplorer/0.1 (https://github.com/tymrom/gizzverse-explorer)"
 }
 
 OUTPUT = Path("data/raw/discography.json")
 
 def get_json(endpoint, params=None):
-    time.sleep(1.1)
+    time.sleep(2.0)
 
     response = requests.get(
         f"{BASE_URL}/{endpoint}",
@@ -68,7 +68,7 @@ def get_tracks(release_group_id):
         {"inc": "releases"}
     ).get("releases", [])
 
-    official = [release for release in releases if release.get("status") == "official"]
+    official = [release for release in releases if release.get("status") == "Official"]
 
     if not official:
         return []
