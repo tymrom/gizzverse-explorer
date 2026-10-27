@@ -1,33 +1,44 @@
 import json
-from pathlib import Path
+from gizzverse_explorer.config import (
+    CHUNK_OVERLAP, CHUNK_SIZE, CHUNKS_PATH, LYRICS_DIR
+)
 
-LYRICS_DIR = Path("data/raw/lyrics")
-OUTPUT_PATH = Path("data/processed/chunks.json")
 
-CHUNK_SIZE = 1000
-CHUNK_OVERLAP = 200
-
-def split_text(text: str) -> list[str]:
-    lines = text.splitlines(keepends=True)
+def split_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> list[str]:
     chunks = []
-    current = ""
+    current: list[str] = []
+    current_len = 0
 
-    for line in lines:
-        if current and len(current) + len(line) > CHUNK_SIZE:
-            chunks.append(current.strip())
-            current = current[-CHUNK_OVERLAP:] + line
-        else:
-            current += line
+    for line in text.splitlines():
+        line_len = len(line) + 1
 
-    if current.strip():
-        chunks.append(current.strip())
+        if current and current_len + line_len > chunk_size:
+            chunks.append("\n".join(current).strip())
+
+            tail: list[str] = []
+            tail_len = 0
+
+            for previous in reversed(current):
+                if tail_len + len(previous) + 1 > overlap:
+                    break
+
+                tail.insert(0, previous)
+                tail_len += len(previous) + 1
+
+            current, current_len = tail, tail_len
+
+        current.append(line)
+        current_len += line_len
+
+    if any(line.strip() for line in current):
+        chunks.append("\n".join(current).strip())
 
     return chunks
 
 def main():
     chunks = []
 
-    for path in LYRICS_DIR.glob("*.json"):
+    for path in sorted(LYRICS_DIR.glob("*.json")):
         data = json.loads(path.read_text(encoding="utf-8"))
         lyrics = data.get("lyrics", {})
 
@@ -55,15 +66,15 @@ def main():
                 }
             })
 
-    OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    CHUNKS_PATH.parent.mkdir(parents=True, exist_ok=True)
 
-    OUTPUT_PATH.write_text(
+    CHUNKS_PATH.write_text(
         json.dumps(chunks, ensure_ascii=False, indent=2),
         encoding="utf-8"
     )
 
     print(f"Created {len(chunks)} chunks")
-    print(f"Saved to {OUTPUT_PATH}")
+    print(f"Saved to {CHUNKS_PATH}")
 
 if __name__ == "__main__":
     main()

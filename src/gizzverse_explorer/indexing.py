@@ -1,15 +1,12 @@
 import json
-from pathlib import Path
 from uuid import uuid5, NAMESPACE_URL
 from qdrant_client import QdrantClient, models
-from sentence_transformers import SentenceTransformer
-import torch
-
-CHUNKS_PATH = Path("data/processed/chunks.json")
-QDRANT_PATH = "data/qdrant"
-
-COLLECTION_NAME = "kglw_lyrics"
-MODEL_NAME = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+from gizzverse_explorer.config import (
+    CHUNKS_PATH, COLLECTION_NAME, DENSE_MODEL_NAME, QDRANT_PATH, SPARSE_MODEL_NAME
+)
+from gizzverse_explorer.model_loader import (
+    embed_documents, load_dense, load_sparse, report_truncation, to_sparse_vector, build_document_text
+)
 
 def main():
     chunks = json.loads(CHUNKS_PATH.read_text(encoding="utf-8"))
@@ -19,19 +16,19 @@ def main():
 
         return
 
-    print(f"Loading embedding model {MODEL_NAME}")
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    model = SentenceTransformer(MODEL_NAME, device=device)
+    print(f"Loading embedding model {DENSE_MODEL_NAME} and {SPARSE_MODEL_NAME}")
+
+    dense_model = load_dense()
+    sparse_model = load_sparse()
+
+    texts = [build_document_text(chunk) for chunk in chunks]
+    report_truncation(dense_model, texts)
 
     print(f"Generating embeddings for {len(chunks)} chunks...")
-
-    texts = [chunk["text"] for chunk in chunks]
-
-    embeddings = model.encode(
-        texts,
-        batch_size=32,
-        show_progress_bar=True,
-        normalize_embeddings=True
+    
+    dense_embeddings = embed_documents(dense_model, texts)
+    sparse_embeddings = list(
+        sparse_model.embed(texts, batch_size=1)
     )
 
     client = QdrantClient(path=QDRANT_PATH)
@@ -41,21 +38,31 @@ def main():
 
     client.create_collection(
         collection_name=COLLECTION_NAME,
-        vectors_config=models.VectorParams(
-            size=model.get_embedding_dimension(),
-            distance=models.Distance.COSINE
-        )
+        vectors_config={
+            "dense": models.VectorParams(
+                size=dense_embeddings.shape[1],
+                distance=models.Distance.COSINE
+            )
+        },
+        sparse_vectors_config={
+            "sparse": models.SparseVectorParams(
+                index=models.SparseIndexParams(on_disk=False)
+            )
+        }
     )
 
     points = []
 
-    for chunk, embedding in zip(chunks, embeddings):
+    for chunk, dense_emb, sparse_emb in zip(chunks, dense_embeddings, sparse_embeddings):
         point_id = str(uuid5(NAMESPACE_URL, chunk["id"]))
 
         points.append(
             models.PointStruct(
                 id=point_id,
-                vector=embedding.tolist(),
+                vector={
+                    "dense": dense_emb.tolist(),
+                    "sparse": to_sparse_vector(sparse_emb)
+                },
                 payload={
                     "text": chunk["text"],
                     **chunk["metadata"]
@@ -71,7 +78,7 @@ def main():
             points=points[start:start + 100]
         )
 
-    print(f"Indexed {len(points)} chunks succesfully.")
+    print(f"Indexed {len(points)} chunks successfully.")
 
     client.close()
 

@@ -1,12 +1,10 @@
 import json
 import re
 import time
-from pathlib import Path
 import requests
+from gizzverse_explorer.config import DISCOGRAPHY_PATH, LYRICS_DIR
 
 ARTIST = "King Gizzard & the Lizard Wizard"
-DISCOGRAPHY_PATH = Path("data/raw/discography.json")
-LYRICS_DIR = Path("data/raw/lyrics")
 SEARCH_URL = "https://lrclib.net/api/search"
 
 HEADERS = {

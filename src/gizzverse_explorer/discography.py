@@ -1,7 +1,7 @@
 import json
 import time
-from pathlib import Path
 import requests
+from gizzverse_explorer.config import DISCOGRAPHY_PATH as OUTPUT
 
 ARTIST = "King Gizzard & the Lizard Wizard"
 BASE_URL = "https://musicbrainz.org/ws/2"
@@ -10,7 +10,6 @@ HEADERS = {
     "User-Agent": "GizzverseExplorer/0.1 (https://github.com/tymrom/gizzverse-explorer)"
 }
 
-OUTPUT = Path("data/raw/discography.json")
 
 def get_json(endpoint, params=None):
     time.sleep(2.0)

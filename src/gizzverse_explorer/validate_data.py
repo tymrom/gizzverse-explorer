@@ -1,9 +1,6 @@
 import json
 from collections import Counter
-from pathlib import Path
-
-DISCOGRAPHY_PATH = Path("data/raw/discography.json")
-LYRICS_DIR = Path("data/raw/lyrics")
+from gizzverse_explorer.config import DISCOGRAPHY_PATH, LYRICS_DIR
 
 
 def main() -> None:

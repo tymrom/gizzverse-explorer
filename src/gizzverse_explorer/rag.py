@@ -1,16 +1,20 @@
 from qdrant_client import QdrantClient
-from sentence_transformers import SentenceTransformer
-from gizzverse_explorer.indexing import (
-    MODEL_NAME,
-    QDRANT_PATH
-)
+from gizzverse_explorer.config import QDRANT_PATH
 from gizzverse_explorer.llm import generate_answer
-from gizzverse_explorer.retrieval import retrieve_songs
+from gizzverse_explorer.retrieval import retrieve_chunks, load_models
+
+def answer_question(question, dense_model, sparse_model, reranker, client):
+    chunks = retrieve_chunks(question, dense_model, sparse_model, reranker, client)
+
+    if not chunks:
+        return None, []
+
+    return generate_answer(question, chunks), chunks
 
 def main():
-    print("Loading embedding model...")
-    model = SentenceTransformer(MODEL_NAME)
-    client = QdrantClient(path=QDRANT_PATH, check_compatibility=False)
+    print("Loading embedding models and reranker...")
+    dense_model, sparse_model, reranker = load_models()
+    client = QdrantClient(path=QDRANT_PATH)
 
     print("Explorer ready.")
 
@@ -24,21 +28,28 @@ def main():
             if not question:
                 continue
 
-            songs = retrieve_songs(question, model, client)
+            print("\nGenerating answer...\n")
+            answer, chunks = answer_question(
+                question, dense_model, sparse_model, reranker, client
+            )
 
-            if not songs:
+            if not chunks:
                 print("No relevant songs found.\n")
                 continue
 
-            print("\nGenerating answer...\n")
-
-            answer = generate_answer(question, songs)
-
             print(answer)
-            print(f"\nSources:")
+            print("\nSources:")
 
-            for song in songs:
-                print(f"- {song['title']} ({song['album']})")
+            seen_songs = set()
+
+            for chunk in chunks:
+                song_key = (chunk["title"], chunk["album"])
+
+                if song_key in seen_songs:
+                    continue
+
+                seen_songs.add(song_key)
+                print(f"- {chunk['title']} ({chunk['album']})")
 
             print()
 

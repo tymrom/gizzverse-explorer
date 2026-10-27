@@ -1,46 +1,75 @@
-import json
-from pathlib import Path
 from qdrant_client import QdrantClient
-from sentence_transformers import SentenceTransformer
-from gizzverse_explorer.indexing import COLLECTION_NAME
+from qdrant_client.models import Fusion, FusionQuery, Prefetch
+from sentence_transformers import SentenceTransformer, CrossEncoder
+from fastembed import SparseTextEmbedding
+from gizzverse_explorer.config import (
+    COLLECTION_NAME, PREFETCH_LIMIT, RERANK_LIMIT, RETRIEVAL_LIMIT
+)
+from gizzverse_explorer.model_loader import (
+    embed_query, get_device, load_dense, load_reranker, load_sparse, to_sparse_vector
+)
 
-LYRICS_DIR = Path("data/raw/lyrics")
+def load_models():
+    print(f"Initializing models (device: {get_device()})...")
 
-def retrieve_songs(question: str, model: SentenceTransformer, client: QdrantClient, limit: int = 6) -> list[dict]:
-    query_vector = model.encode(question, normalize_embeddings=True).tolist()
-    results = client.query_points(collection_name=COLLECTION_NAME, query=query_vector, limit=20, with_payload=True).points
+    return load_dense(), load_sparse(), load_reranker()
 
-    songs = []
-    seen_tracks = set()
+def retrieve_chunks(question: str, dense_model: SentenceTransformer, sparse_model: SparseTextEmbedding, reranker: CrossEncoder, client: QdrantClient, limit: int=RERANK_LIMIT) -> list[dict]:
+    dense_query = embed_query(dense_model, question)
+    sparse_query = to_sparse_vector(next(iter(sparse_model.query_embed(question))))
 
+    results = client.query_points(
+        collection_name=COLLECTION_NAME,
+        prefetch=[
+            Prefetch(query=dense_query, using="dense", limit=PREFETCH_LIMIT),
+            Prefetch(query=sparse_query, using="sparse", limit=PREFETCH_LIMIT)
+        ],
+        query=FusionQuery(fusion=Fusion.RRF),
+        limit=RETRIEVAL_LIMIT,
+        with_payload=True
+    ).points
+
+    chunks = []
     for result in results:
-        payload = result.payload or {}
-        recording_id = payload.get("track_id")
+        if result.payload:
+            chunks.append({**result.payload, "fusion_score": float(result.score)})
 
-        if not recording_id or recording_id in seen_tracks:
+    if not chunks:
+        return []
+
+    scores = reranker.predict([
+        [
+            question,
+            (
+                f"Song: {chunk['title']}\n"
+                f"Album: {chunk['album']}\n"
+                f"Lyrics:\n{chunk['text']}"
+            )
+        ]
+        for chunk in chunks
+    ])
+
+    for chunk, score in zip(chunks, scores):
+        chunk["rerank_score"] = float(score)
+
+    chunks.sort(key=lambda chunk: chunk["rerank_score"], reverse=True)
+
+    unique_chunks = []
+    seen_songs = set()
+
+    for chunk in chunks:
+        song_id = chunk.get("track_id") or (
+            chunk["title"],
+            chunk["album"],
+        )
+
+        if song_id in seen_songs:
             continue
 
-        path = LYRICS_DIR / f"{recording_id}.json"
+        seen_songs.add(song_id)
+        unique_chunks.append(chunk)
 
-        if not path.exists():
-            continue
-
-        data = json.loads(path.read_text(encoding="utf-8"))
-        lyrics = data.get("lyrics", {}).get("plain_text")
-
-        if not lyrics:
-            continue
-
-        songs.append({
-            "title": data["title"],
-            "album": data["album"],
-            "lyrics": lyrics,
-            "score": result.score
-        })
-
-        seen_tracks.add(recording_id)
-
-        if len(songs) >= limit:
+        if len(unique_chunks) >= limit:
             break
 
-    return songs
+    return unique_chunks

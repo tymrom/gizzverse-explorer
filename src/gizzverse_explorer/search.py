@@ -1,42 +1,27 @@
 from qdrant_client import QdrantClient
-from sentence_transformers import SentenceTransformer
-import torch
-from gizzverse_explorer.indexing import (
-    COLLECTION_NAME,
-    MODEL_NAME,
-    QDRANT_PATH
-)
+from gizzverse_explorer.config import QDRANT_PATH
+from gizzverse_explorer.retrieval import load_models, retrieve_chunks
 
 def main():
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    model = SentenceTransformer(MODEL_NAME, device=device)
+    dense_model, sparse_model, reranker = load_models()
     client = QdrantClient(path=QDRANT_PATH)
 
-    question = input(str("Question: "))
+    try:
+        question = input("Question: ").strip()
 
-    query_vector = model.encode(
-        question,
-        normalize_embeddings=True
-    ).tolist()
+        chunks = retrieve_chunks(question, dense_model, sparse_model, reranker, client)
 
-    results = client.query_points(
-        collection_name=COLLECTION_NAME,
-        query=query_vector,
-        limit=5,
-        with_payload=True
-    ).points
+        print(f"\nQuestion: {question}\n")
 
-    print(f"\nQuestion: {question}\n")
+        for chunk in chunks:
+            print(f"Title: {chunk['title']}")
+            print(f"Album: {chunk['album']}")
+            print(f"Fusion score: {chunk['fusion_score']:.3f}")
+            print(f"Rerank score: {chunk['rerank_score']:.3f}")
+            print("-" * 40)
 
-    for result in results:
-        payload = result.payload or {}
-
-        print(f"Title: {payload.get('title')}")
-        print(f"Album: {payload.get('album')}")
-        print(f"Score: {result.score:.3f}")
-        print("-" * 40)
-
-    client.close()
+    finally:
+        client.close()
 
 if __name__ == "__main__":
     main()
